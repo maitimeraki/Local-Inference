@@ -1,0 +1,31 @@
+[project]
+name = "benchmark-observability"
+version = "0.1.0"
+description = "vLLM benchmarking + observability platform (white-box)"
+requires-python = ">=3.10"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["benchmarking", "gateway", "observability", "scheduler"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "numpy>=1.26",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+filterwarnings = ["ignore::DeprecationWarning"]

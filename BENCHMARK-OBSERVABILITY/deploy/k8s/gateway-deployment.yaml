@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          # Placeholder image name — must be built and pushed before apply.
+          image: infergw:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+          env:
+            # The grid topology: the gateway forwards to the scheduler, which
+            # owns the GPU and the KV-block ledger. Without this the gateway
+            # would look for an engine backend and route around the queue.
+            - name: INFERGW_SCHEDULER_URL
+              value: http://scheduler:9001
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  selector:
+    app: gateway
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+---
+# NOTE: The gateway keeps an in-process, exact-match response cache AND an
+# in-process idempotency registry. Scaling the deployment beyond one replica
+# (HPA scale-out) invalidates both: each pod has its own copy, so the same
+# prompt can miss on one pod and hit on another (cache-hit metrics and
+# saved-seconds become meaningless), and the same Idempotency-Key can reach
+# two pods and start two engine requests. Keep maxReplicas at 1 unless both
+# move to a shared store (e.g. Redis).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 1
+  maxReplicas: 1
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+# Placeholder image name (infergw:latest) must be built and pushed before apply.

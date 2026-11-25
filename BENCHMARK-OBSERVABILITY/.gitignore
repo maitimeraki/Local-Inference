@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+results/
+*.db
+.env
+.uv/
+.pytest_cache/
+.ruff_cache/
+observability/prometheus/targets/

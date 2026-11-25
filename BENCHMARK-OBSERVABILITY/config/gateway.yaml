@@ -1,0 +1,80 @@
+# Request router configuration.
+#
+# ONE BACKEND BY DEFAULT, and that is a hardware constraint, not an oversight.
+# Simultaneous A/B needs two engines loaded at once. On this 6 GB card a 1.5B
+# fp16 model is ~3 GB of weights, so two do not fit. Weighted mode is therefore
+# configured but only one backend is marked healthy.
+#
+# To get true simultaneous A/B you need one of:
+#   * a smaller model — two 0.5B engines fit comfortably in 6 GB, or
+#   * more VRAM.
+# Then set `healthy: true` on `optimized` and `strategy: weighted`, and both
+# engines see one identical arrival pattern instead of two runs fighting
+# thermal drift.
+#
+# With one backend the gateway still earns its place: it is the only place
+# arrival rate, admission decisions and queueing delay are observable.
+
+backends:
+  - name: baseline
+    base_url: http://localhost:8000
+    weight: 1.0
+    healthy: true
+
+  - name: optimized
+    base_url: http://localhost:8001
+    weight: 1.0
+    healthy: false
+
+# Requests admitted before the gateway starts returning 429.
+#
+# With a scheduler configured this is a *fallback*: at startup the gateway
+# asks the scheduler for its ceilings and adopts them (what it will run plus
+# what it will hold), so the two tiers cannot disagree about capacity. The
+# number here is what the gateway uses before that handshake completes, and
+# what it uses on its own in the A/B path, where there is no scheduler.
+#
+# The point of putting a number here is that overload becomes visible
+# instead of being absorbed silently.
+max_in_flight: 64
+
+request_timeout_s: 300.0
+
+# One retry, to a different backend. More than one turns a struggling engine
+# into a retry storm.
+max_retries: 1
+
+strategy: least_outstanding
+
+cache_enabled: true
+cache_max_entries: 2048
+cache_ttl_s: 600.0
+
+# --- tier 2: the scheduler ----------------------------------------------------
+# The scheduler owns the GPU and the KV-block ledger. With `scheduler_url` set
+# the gateway has exactly one upstream: it submits, waits for the decision
+# (admit / hold / reject) and relays the stream.
+#
+# An empty `scheduler_url` falls back to the OpenAI-compatible backends above
+# — that is the A/B benchmarking path, and it needs no scheduler.
+scheduler_url: http://localhost:9001
+scheduler_timeout_s: 300.0
+
+# Every request carries its caller in X-User-Id. Tier 2 uses it for fairness
+# (one user cannot take every slot); tier 1 uses it to scope idempotency
+# keys. With `require_user_id: false` a request without the header is served
+# as the anonymous user, which shares one per-user budget.
+require_user_id: true
+
+# How long a submitted Idempotency-Key is remembered. A duplicate submit
+# inside this window is refused instead of starting a second engine request.
+idempotency_ttl_s: 900.0
+
+# One user, at most this many requests in flight at the gateway. A request
+# may ask for less (body "concurrency_limit"); it may not ask for more.
+#
+# Like max_in_flight, this is a fallback: with a scheduler configured the
+# gateway adopts the scheduler's per-user ceiling (what it will run plus what
+# it will hold for that user) at startup, so the gateway cannot refuse a
+# request the scheduler was willing to hold — or admit one it was not.
+max_in_flight_per_user: 32

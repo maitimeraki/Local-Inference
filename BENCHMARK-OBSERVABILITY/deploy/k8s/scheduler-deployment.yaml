@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+spec:
+  # Exactly one, and it is not a tuning knob. The scheduler owns the GPU and
+  # the KV-block ledger: a second replica would be a second engine on the same
+  # card, and each ledger would only ever see its own blocks — the drift
+  # metric would read zero while the cache was actually full.
+  replicas: 1
+  strategy:
+    # Never two schedulers at once. A rolling update keeps the old pod alive
+    # on the GPU while the new one asks for its own allocation, and one of
+    # them loses.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: scheduler
+          # Placeholder image name — must be built and pushed before apply.
+          # It must carry the repo's `config/` directory: the scheduler reads
+          # config/scheduler.yaml and the engine config it points at.
+          image: infersched:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9001
+          env:
+            - name: INFERSCHED_PORT
+              value: "9001"
+            # The engine runs in-process so the block pool is a readable
+            # Python object. Without this, vLLM forks an EngineCore child and
+            # the ledger would be reading a different process's state — which
+            # is the whole reason the tier exists.
+            - name: VLLM_ENABLE_V1_MULTIPROCESSING
+              value: "0"
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+          readinessProbe:
+            # `/health` answers 200 while the weights are still loading.
+            # `/ready` does not: it fails until there is an engine for the
+            # ledger to account for.
+            httpGet:
+              path: /ready
+              port: 9001
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+spec:
+  selector:
+    app: scheduler
+  ports:
+    - name: http
+      port: 9001
+      targetPort: 9001
+
+# Placeholder image name (infersched:latest) must be built and pushed before
+# apply. There is deliberately no HPA here: the replica count is fixed at 1
+# because the tier owns the GPU.

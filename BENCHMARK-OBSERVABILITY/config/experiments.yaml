@@ -1,0 +1,107 @@
+# Experiments as data.
+#
+# Each experiment is an axis spec; the runner expands the cartesian product into
+# cells. Adding experiment 7 is an edit here, not a new module.
+#
+# A cell may override the experiment defaults along these axes:
+#   concurrency     experiment 1
+#   workload        experiments 2 and 3 (pick a different profile)
+#   prefix_mode     experiment 4  (unique | shared)
+#   config          experiments 5 and 6 (engine config name)
+#
+# `repeats` is 3 everywhere: two runs give you a difference, three give you a
+# spread, and a laptop GPU thermally throttles over a long sweep. Reporting a
+# mean without variance from a laptop is how you publish a wrong answer.
+#
+# `requests` per workload is set in workloads.yaml. Keep it above the top
+# concurrency or a cell finishes in one wave and queueing never appears.
+
+experiments:
+  # Gate-check only. Runs in seconds; proves the whole wiring end to end.
+  - id: smoke
+    description: "Wiring check — not a measurement"
+    engine: vllm
+    workload: smoke
+    server: baseline
+    axis:
+      concurrency: [1]
+    repeats: 1
+
+  # EXPERIMENT 1 — concurrency scaling.
+  # Where the throughput/latency tradeoff actually lives. Expect throughput to
+  # rise, then flatten, then regress; expect TTFT p95 to rise monotonically.
+  - id: conc_scale
+    description: "Experiment 1 — concurrency 1,4,8,16,32"
+    engine: vllm
+    workload: concurrent_chat
+    server: baseline
+    axis:
+      concurrency: [1, 4, 8, 16, 32]
+    repeats: 3
+
+  # EXPERIMENT 2 — short vs long prompts, output length held comparable.
+  # Isolates prefill cost.
+  - id: prompt_length
+    description: "Experiment 2 — short vs long prompts"
+    engine: vllm
+    workload: interactive_chat
+    server: baseline
+    axis:
+      workload: [interactive_chat, long_context_analysis]
+      concurrency: [8]
+    repeats: 3
+
+  # EXPERIMENT 3 — short vs long outputs, input length held comparable.
+  # Isolates decode cost. Run against experiment 2's result: the two are limited
+  # by different things.
+  - id: output_length
+    description: "Experiment 3 — short vs long outputs"
+    engine: vllm
+    workload: summarization
+    server: baseline
+    axis:
+      workload: [summarization, code_generation]
+      concurrency: [8]
+    repeats: 3
+
+  # EXPERIMENT 4 — prefix caching, as a 2x2.
+  # `config` toggles the engine's enable_prefix_caching; `prefix_mode` toggles
+  # whether the requests share a prefix. The interesting cell is
+  # (shared, optimized-vs-baseline) — shared+baseline must show no gain, which
+  # is the control that proves the flag is what made the difference.
+  - id: prefix_cache
+    description: "Experiment 4 — repeated vs unique prefixes, cache on/off"
+    engine: vllm
+    workload: repeated_system_prompts
+    server: baseline
+    axis:
+      config: [baseline, optimized]
+      prefix_mode: [shared, unique]
+      concurrency: [8]
+    repeats: 3
+
+  # EXPERIMENT 5 — baseline vs optimized settings.
+  - id: baseline_vs_optimized
+    description: "Experiment 5 — stock vs tuned engine settings"
+    engine: vllm
+    workload: concurrent_chat
+    server: baseline
+    axis:
+      config: [baseline, optimized]
+      concurrency: [1, 8, 32]
+    repeats: 3
+
+  # EXPERIMENT 6 — engine comparison.
+  # With one engine there is nothing to compare, so this compares the two vLLM
+  # configurations and stands as the placeholder for SGLang: adding it is a new
+  # entry in config/engine/, a backend in gateway.yaml, and a third value here.
+  # No code change — which is the point.
+  - id: engine_comparison
+    description: "Experiment 6 — engine/cross-config comparison (SGLang is a config addition)"
+    engine: vllm
+    workload: long_context_analysis
+    server: baseline
+    axis:
+      config: [baseline, optimized]
+      concurrency: [8]
+    repeats: 3

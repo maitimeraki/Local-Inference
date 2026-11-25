@@ -1,0 +1,43 @@
+# The treatment condition. Everything the baseline does, plus the three knobs
+# that plausibly matter on this hardware.
+#
+# enable_prefix_caching   the variable experiment 4 is about
+# enable_chunked_prefill  splits long prefills so a long-context request cannot
+#                         monopolise a step and stall every decoding sequence
+# max_num_seqs            caps concurrent sequences, trading throughput for
+#                         KV-cache headroom and more predictable latency
+#
+# `enforce_eager` stays true. CUDA-graph capture buys throughput and costs
+# memory, and on 6 GB the memory is what runs out first. It also makes step
+# timings in `inferbench inspect` mean more, because there is no replay to
+# hide behind.
+name: optimized
+model: Qwen/Qwen2.5-1.5B-Instruct
+dtype: auto
+max_model_len: 4096
+gpu_memory_utilization: 0.80
+enable_prefix_caching: true
+enable_chunked_prefill: true
+max_num_seqs: 32
+# The scheduler decides who matters when the pool runs out. vLLM's priority
+# policy makes that decision visible: the engine serves the smallest priority
+# number first and preempts the largest last, which is the same order the
+# scheduler uses when it sheds a request of its own.
+scheduling_policy: priority
+enforce_eager: true
+# Anything vLLM's EngineArgs takes that this file does not name goes here,
+# under `extra`, and is merged into the engine's kwargs verbatim. It has to be
+# nested: a key at the top level of this file that the model does not name is
+# dropped without a word.
+#
+# max_num_batched_tokens is the engine's own token budget for one step, and
+# vLLM's default of 2048 is smaller than one long prompt. A 1300-token prompt
+# nearly fills it, so only one request can prefill per step and the rest of
+# the batch waits inside the engine. The scheduler tier then hands the engine
+# 32 requests that the engine runs four at a time: two queues, and the
+# engine's is the one that decides the order -- which is exactly what the
+# scheduler tier exists to prevent. Sized to the context window so a full
+# batch of prompts can be prefilled together.
+extra:
+  max_num_batched_tokens: 8192
+notes: "Prefix caching + chunked prefill + bounded sequences."

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: inference
+
+resources:
+  - namespace.yaml
+  - model-cache-pvc.yaml
+  - scheduler-deployment.yaml
+  - gateway-deployment.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
+
+# vllm-deployment.yaml is the A/B baseline tier and is deliberately NOT in
+# this list: in the grid the scheduler loads the engine in-process, and two
+# GPU tiers on one card means one of them without an engine. Apply it by hand
+# to run the baseline instead.
+
+# Placeholder image names (vllm-server:latest, infergw:latest, infersched:latest)
+# must be built and pushed to a registry the cluster can pull from before
+# `kubectl apply -k .`.

@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: vllm
+          # Placeholder image name — must be built and pushed before apply.
+          image: vllm-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: VLLM_ENABLE_V1_MULTIPROCESSING
+              value: "0"
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache/huggingface
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: model-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+spec:
+  selector:
+    app: vllm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+# The A/B baseline tier, not the grid. In the grid the scheduler loads the
+# engine in-process (see scheduler-deployment.yaml) and this manifest is not
+# applied — two GPU tiers on one card is one of them without an engine.
+# The model-cache PVC lives in model-cache-pvc.yaml so both tiers can share it.
+#
+# Placeholder image name (vllm-server:latest) must be built and pushed before apply.

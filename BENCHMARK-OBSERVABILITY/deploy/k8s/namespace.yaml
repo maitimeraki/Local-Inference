@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inference
+
+# Placeholder image names (vllm-server:latest, infergw:latest) must be built and
+# pushed before apply.

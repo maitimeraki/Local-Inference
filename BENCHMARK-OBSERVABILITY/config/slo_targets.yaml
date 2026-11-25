@@ -1,0 +1,53 @@
+# SLO targets.
+#
+# THESE ARE PLACEHOLDERS AND THEY ARE DELIBERATELY LOOSE.
+#
+# The plan's rule is: run the load test, read the achievable P95, then set the
+# target with margin. Until that has happened, any number here is a guess, and
+# a guessed-tight target manufactures alert fatigue on day one while a
+# guessed-loose one at least fails in the safe direction.
+#
+# Replace these after `inferbench bench --experiment conc_scale` and
+# `inferbench slo`. The measured P95 at your target concurrency is the number
+# to anchor on — with margin, because a laptop throttles.
+#
+# `measurement` and `stat` must name something the harness actually records:
+#   ttft | itl | tpot | e2e | queue | input_tps | output_tps | request_tps |
+#   gpu_mem | cost_per_mtok_output | error_rate
+# and a stat from: mean | p50 | p95 | p99 | min | max
+
+targets:
+  - id: ttft_p95_interactive
+    description: "Interactive chat stays responsive"
+    workload: interactive_chat
+    measurement: ttft
+    stat: p95
+    threshold: 2.0
+    comparison: "<="
+    window: 5m
+
+  - id: e2e_p95_interactive
+    description: "Interactive requests complete promptly end to end"
+    workload: interactive_chat
+    measurement: e2e
+    stat: p95
+    threshold: 8.0
+    comparison: "<="
+    window: 5m
+
+  - id: error_rate
+    description: "Requests succeed"
+    measurement: error_rate
+    stat: mean
+    threshold: 0.01
+    comparison: "<="
+    window: 5m
+
+  - id: throughput_floor
+    description: "Serving throughput does not collapse under load"
+    workload: concurrent_chat
+    measurement: output_tps
+    stat: mean
+    threshold: 10.0
+    comparison: ">="
+    window: 5m

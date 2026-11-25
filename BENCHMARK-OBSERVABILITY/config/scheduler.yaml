@@ -1,0 +1,31 @@
+# Scheduler tier (tier 2): KV-aware admission, hold queue, round-robin dispatch.
+#
+# The block size is not configured here: it is read from the engine's own
+# vLLM config at startup, so the scheduler and the engine cannot disagree
+# about it.
+
+# Which engine config from config/engine/ this scheduler drives.
+engine: optimized
+
+# strict     = reserve prompt blocks + worst-case output blocks (no preemption)
+# prompt_only = reserve prompt blocks only (preemption possible, more throughput)
+# adaptive   = reserve prompt blocks + the measured p95 output, so the promise
+#              follows what the model actually produces. Falls back to strict
+#              until there is enough measurement to trust the p95.
+reservation_mode: strict
+
+# Capacity.
+# max_in_flight is derived from the engine's max_num_seqs at startup, because
+# promising more concurrent requests than the engine can run is how a queue
+# turns into preemption. It is not set here: a hand-copied number drifts
+# from the engine's the moment either side changes. Uncomment to lower it.
+# max_in_flight: 32           # scheduler-side ceiling on concurrent engine requests
+max_in_flight_per_user: 4   # one user cannot hold the whole GPU; the rest of
+                            # that user's requests wait in that user's queue
+max_queue_depth_global: 256 # held requests, total
+max_queue_depth_per_user: 64  # a user's waiting requests, before one is refused
+max_reserved_blocks_per_user: 512   # stops one user monopolising the KV pool
+
+# Where this server listens.
+host: 0.0.0.0
+port: 9001

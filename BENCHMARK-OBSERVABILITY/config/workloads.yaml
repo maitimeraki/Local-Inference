@@ -1,0 +1,71 @@
+# Workload profiles — experimental categories, not claims about real traffic.
+#
+# These are deliberately clean shapes (short/long, in/out) so that a difference
+# between two runs is attributable to one thing. Realistic input/output
+# distributions come later, derived from application traces.
+#
+# Constraint: input_tokens + output_tokens must stay under the engine's
+# max_model_len (4096 on the 6 GB card). Anything larger is a config change,
+# not a workload change.
+#
+# `requests` is the batch size per repeat. Keep it comfortably above the top
+# concurrency you test, or requests finish in one wave and the queueing you
+# meant to measure never happens.
+
+profiles:
+  # Deliberately tiny. Exists so the phase-0/1 gates ("does the server answer",
+  # "do our numbers match vllm bench serve") take seconds, not an hour.
+  - name: smoke
+    input_tokens: 32
+    output_tokens: 32
+    purpose: Wiring check
+    requests: 4
+
+  # Responsiveness. Short in, short-medium out. This is where TTFT is the
+  # number a user feels, and where a throughput-optimal config can still feel
+  # slow.
+  - name: interactive_chat
+    input_tokens: 128
+    output_tokens: 256
+    purpose: Responsiveness
+    requests: 64
+
+  # Prefill-dominated. Long in, medium out. Exercises attention over a long
+  # context and shows whether prefill or decode owns the latency budget.
+  - name: long_context_analysis
+    input_tokens: 3072
+    output_tokens: 512
+    purpose: Prefill performance
+    requests: 24
+
+  # High input-to-output ratio. All the prefill cost, almost no decode.
+  - name: summarization
+    input_tokens: 3072
+    output_tokens: 128
+    purpose: High input-to-output ratio
+    requests: 24
+
+  # Decode-dominated. Medium in, long out. The mirror image of summarization —
+  # useful for showing that the two are limited by different things.
+  - name: code_generation
+    input_tokens: 512
+    output_tokens: 1024
+    purpose: Decode performance
+    requests: 24
+
+  # Serving throughput. Mixed and moderate, many concurrent requests.
+  - name: concurrent_chat
+    input_tokens: 256
+    output_tokens: 256
+    purpose: Serving throughput
+    requests: 96
+
+  # Prefix caching. Every request shares an identical 768-token leading block,
+  # so a cache-enabled engine skips that prefill and a disabled one does not.
+  - name: repeated_system_prompts
+    input_tokens: 1024
+    output_tokens: 256
+    purpose: Prefix caching evaluation
+    requests: 64
+    prefix_mode: shared
+    shared_prefix_tokens: 768

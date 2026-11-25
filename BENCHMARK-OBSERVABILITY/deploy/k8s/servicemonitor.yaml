@@ -1,0 +1,51 @@
+# Matches the A/B baseline deployment (vllm-deployment.yaml), which the
+# kustomization does not apply — in the grid the scheduler runs the engine
+# in-process. This monitor has no endpoints unless that deployment is applied
+# by hand.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm
+  labels:
+    app: vllm
+spec:
+  selector:
+    matchLabels:
+      app: vllm
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+spec:
+  selector:
+    matchLabels:
+      app: scheduler
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gateway
+  labels:
+    app: gateway
+spec:
+  selector:
+    matchLabels:
+      app: gateway
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s
+
+# Placeholder image names (vllm-server:latest, infergw:latest, infersched:latest)
+# must be built and pushed before apply.

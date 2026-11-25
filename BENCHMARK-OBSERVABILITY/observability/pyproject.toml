@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "inferobs"
+version = "0.1.0"
+description = "Shared observability library: metric names, tracing, SLO evaluation"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+    "prometheus-client>=0.20",
+]
+
+[project.optional-dependencies]
+tracing = [
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/inferobs"]

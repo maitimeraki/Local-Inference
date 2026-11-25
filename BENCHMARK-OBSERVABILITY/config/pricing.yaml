@@ -1,0 +1,27 @@
+# Cost model inputs.
+#
+# `gpu_hourly_usd` is a KNOB, not a fact. Pick the basis that matches what you
+# are deciding:
+#
+#   amortised    (purchase price / expected hours of use) — what the hardware
+#                actually costs you, ~0.02-0.05 for a laptop GPU
+#   rental-equiv what an equivalent cloud GPU costs per hour, ~0.35 for a
+#                small CUDA instance
+#
+# The default is the rental-equivalent, because the interesting comparison is
+# usually "self-host vs pay per token", and that comparison only makes sense in
+# cloud dollars. Change it when the question changes.
+#
+# Every cost figure the platform reports is derived from this number plus
+# measured wall-clock, so it is only as meaningful as the basis above.
+
+gpu_hourly_usd: 0.35
+instance_label: rtx-3050-laptop-6gb
+
+# Hosted per-token rates, for a "what would this cost on an API" reference.
+# Left null on purpose: a fabricated comparison is worse than none, and the
+# right rates depend on which provider you are actually comparing against.
+cloud_input_per_mtok_usd: null
+cloud_output_per_mtok_usd: null
+
+notes: "Rental-equivalent basis. See comment above before trusting the output."

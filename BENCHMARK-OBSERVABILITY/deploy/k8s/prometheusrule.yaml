@@ -1,0 +1,200 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: inference-slo
+  labels:
+    app: inference
+spec:
+  # The same rules as observability/alerts/slo_rules.yml. Two copies, one
+  # truth: tests/test_alerts.py fails if they drift, because a local alert
+  # that fires and a production alert that does not is the worst kind of
+  # divergence — the one nobody notices.
+  groups:
+    - name: inference_slo
+      rules:
+        # p95 TTFT from the most recently pushed benchmark run(s).
+        - record: slo:ttft_p95_seconds
+          expr: max(bench_metric{metric="ttft", stat="p95"})
+
+        # Gateway 5xx ratio.
+        - record: slo:error_rate_5xx
+          expr: |
+            sum(rate(gate_requests_total{status=~"5.."}[5m]))
+              /
+            sum(rate(gate_requests_total[5m]))
+
+        # Gateway admission-control shed rate (requests rejected per second).
+        - record: slo:gateway_rejected_rate
+          expr: sum(rate(gate_rejected_total[5m]))
+
+        # vLLM KV cache pressure.
+        - record: slo:kv_cache_usage_ratio
+          expr: max(engine_kv_cache_usage_ratio)
+
+        # Live gateway p95 request latency, from the request histogram.
+        - record: slo:gateway_latency_p95_seconds
+          expr: histogram_quantile(0.95, sum(rate(gate_request_duration_seconds_bucket[5m])) by (le))
+
+        # GPU memory pressure ratio (0..1).
+        - record: slo:gpu_memory_ratio
+          expr: max(nvidia_smi_memory_used_bytes / nvidia_smi_memory_total_bytes)
+
+    - name: inference_alerts
+      rules:
+        # NOTE: 0.5s is a PLACEHOLDER threshold and must be tuned per workload.
+        # There is no universal TTFT SLO: a 7B model on a laptop GPU and a 70B
+        # model on an H100 have very different acceptable first-token latency,
+        # and the right budget also shifts with prompt length and concurrency.
+        # Edit this per workload before enabling any paging.
+        - alert: TTFTBurnHigh
+          expr: slo:ttft_p95_seconds > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 TTFT above 0.5s"
+            description: >-
+              p95 time-to-first-token is {{ $value }}s, above the 0.5s threshold,
+              sustained for 5m. Threshold must be tuned per workload
+              (model + hardware + concurrency), not treated as universal.
+
+        - alert: ErrorRateHigh
+          expr: |
+            sum(rate(gate_requests_total{status=~"5.."}[5m]))
+              /
+            sum(rate(gate_requests_total[5m])) > 0.01
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Gateway 5xx error rate above 1%"
+            description: >-
+              5xx responses are {{ $value | humanizePercentage }} of gateway
+              requests over the last 5m (threshold 1%).
+
+        - alert: GatewaySaturated
+          expr: rate(gate_rejected_total[5m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Gateway is shedding load"
+            description: >-
+              Admission control is rejecting requests ({{ $value }}/s) for 2m.
+              The gateway is saturated or over its concurrency budget.
+
+        - alert: KVCacheNearFull
+          expr: engine_kv_cache_usage_ratio > 0.95
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "vLLM KV cache above 95%"
+            description: >-
+              KV cache usage is {{ $value | humanizePercentage }} for 5m.
+              Preemptions and request eviction are imminent.
+
+        - alert: EngineQueueing
+          expr: engine_waiting_requests > 0
+          for: 5m
+          labels:
+            severity: info
+          annotations:
+            summary: "vLLM is queueing requests"
+            description: >-
+              engine_waiting_requests has stayed above 0 for 5m ({{ $value }}
+              waiting), indicating sustained queueing / insufficient capacity.
+
+        - alert: GPUMemoryPressure
+          expr: nvidia_smi_memory_used_bytes / nvidia_smi_memory_total_bytes > 0.95
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU memory above 95%"
+            description: >-
+              GPU memory is {{ $value | humanizePercentage }} full for 5m,
+              risking OOM under further load.
+
+    # The scheduler tier (tier 2). These are correctness alarms, not
+    # performance ones: the tier owns the GPU and the KV-block ledger, and each
+    # of these means the ledger, the engine and the queue have stopped agreeing.
+    - name: scheduler_alerts
+      rules:
+        # The ledger and the engine must agree. Drift means the engine holds KV
+        # blocks that no reservation claims: capacity is being lost silently
+        # and every promise from here on is a guess.
+        - alert: ReservationDrift
+          expr: sched_reservation_drift_blocks != 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Scheduler KV-block ledger has drifted"
+            description: >-
+              The engine holds {{ $value }} KV blocks that no reservation
+              accounts for, for 2m. The ledger can no longer promise capacity
+              it cannot see, so admission is over-committing the cache.
+
+        # A preemption means the reservation model was wrong: the engine had to
+        # take back blocks it had already been given. Under `strict` reservation
+        # this must never happen.
+        - alert: UnexpectedPreemption
+          expr: increase(sched_preemption_total[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "The engine preempted a running request"
+            description: >-
+              {{ $value }} preemptions in the last 5m. The scheduler reserved
+              blocks up front and the engine still had to take one back, so the
+              reservation was too small — check the token estimate against the
+              real prompt and output lengths.
+
+        # The GPU is the bottleneck, so a queue is normal. A queue that does not
+        # drain is not: under load a hold clears in seconds.
+        - alert: SchedulerHoldQueueGrowing
+          expr: sched_hold_depth > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The scheduler hold queue is not draining"
+            description: >-
+              {{ $value }} requests have been waiting for capacity for 5m
+              without a slot. Someone needs to look before the users do.
+
+        # The dispatch path is event-driven: a finishing request hands its slot
+        # to the next waiter immediately. A p95 above half a second means the
+        # hand-off is not happening and the queue is only moving on a poll.
+        - alert: SchedulerDispatchStalled
+          expr: >-
+            histogram_quantile(0.95,
+              sum(rate(sched_dispatch_latency_seconds_bucket[5m])) by (le)) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Slots are not being handed over promptly"
+            description: >-
+              p95 time from a slot becoming free to the engine starting the
+              request is {{ $value }}s. The event path between the finishing
+              request and the hold queue is broken.
+
+        # The tier that owns the GPU is either gone or has not attached its
+        # engine. `absent` covers "not scraped"; the zero covers "up but the
+        # engine never loaded its block pool", which rejects every request.
+        - alert: SchedulerDown
+          expr: absent(sched_total_blocks) or sched_total_blocks == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The scheduler tier is not serving"
+            description: >-
+              The scheduler has not reported a KV-block pool for 2m. Either it
+              is not being scraped or its engine never attached; the gateway
+              cannot serve any request in this state.
+
+# Placeholder image names (vllm-server:latest, infergw:latest, infersched:latest)
+# must be built and pushed before apply.

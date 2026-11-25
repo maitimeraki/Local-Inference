@@ -1,0 +1,29 @@
+# Minimal single-binary Tempo 2.6 config. Receives OTLP over HTTP (4318) and
+# serves its query API / UI on 3200.
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/traces
+
+compactor:
+  compaction:
+    block_retention: 24h
+
+# Metrics-generator is DISABLED. Tempo 2.6 has no `enabled` toggle: the
+# generator's processors (span-metrics, service-graphs, local-blocks) only run
+# when they are listed per-tenant under overrides.metrics_generator.processors,
+# which is intentionally omitted below. The empty registry confirms it stays
+# inert. (We derive SLO metrics in Prometheus instead.)
+metrics_generator:
+  registry: {}

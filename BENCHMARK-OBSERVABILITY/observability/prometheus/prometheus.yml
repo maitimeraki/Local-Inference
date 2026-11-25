@@ -1,0 +1,51 @@
+# Prometheus scrape config for the vLLM benchmarking platform.
+#
+# The two tiers are discovered from a file, not written here. Which ports the
+# grid ended up on is a property of the machine -- something else may already
+# own :9000, in which case `dev.sh` puts the grid on :9100 -- so the file is
+# written by `dev.sh` at startup and Prometheus watches it. A scrape config
+# with the ports baked in goes stale the moment the grid moves, and the
+# symptom is an empty dashboard with no error anywhere.
+#
+# Prometheus cannot expand environment variables inside its config, which is
+# why this is a file rather than an env var.
+global:
+  # 1s, not the usual 15s/5s: a traffic spike is absorbed by admission control
+  # in about 7 seconds, so a 5s scrape catches one sample of the whole event
+  # and the per-tier shape is invisible. The counters are exact either way.
+  scrape_interval: 1s
+  evaluation_interval: 15s
+
+# Alert + recording rules (alerts/slo_rules.yml) are mounted here by compose.yaml.
+rule_files:
+  - /rules/*.yml
+
+scrape_configs:
+  # The scheduler tier owns the GPU and loads the engine in-process, so in
+  # grid mode this is where BOTH the `sched_*` and the `engine_*` metrics come
+  # from. There is no separate engine process to scrape — scraping the engine
+  # port would hit whatever else happens to listen there.
+  - job_name: scheduler
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/scheduler.json"]
+        refresh_interval: 5s
+
+  # Gateway runs natively on the WSL2 host, not in a container.
+  - job_name: gateway
+    metrics_path: /metrics
+    file_sd_configs:
+      - files: ["/etc/prometheus/targets/gateway.json"]
+        refresh_interval: 5s
+
+  # Benchmark runs are pushed here; let the pushed job/instance labels win.
+  - job_name: pushgateway
+    honor_labels: true
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
+  - job_name: gpu-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gpu-exporter:9835"]

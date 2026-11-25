@@ -1,0 +1,14 @@
+# The control condition. Stock settings, nothing enabled.
+#
+# Sized for a 6 GB card: a 1.5B model in fp16 is ~3 GB of weights, which leaves
+# roughly 2 GB of KV cache at 0.80 utilisation. That is comfortably enough for
+# short contexts and tight for 3072-token ones — the ceiling the concurrency
+# experiment will find is real, and reporting it is the finding.
+name: baseline
+model: Qwen/Qwen2.5-1.5B-Instruct
+dtype: auto
+max_model_len: 4096
+gpu_memory_utilization: 0.80
+enable_prefix_caching: false
+enforce_eager: true
+notes: "Stock settings. Control for every comparison."
