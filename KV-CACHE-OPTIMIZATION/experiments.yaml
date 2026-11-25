@@ -1,0 +1,29 @@
+# The sweep matrix. The fidelity floor is declared here before the sweep
+# runs, so it cannot be moved to fit the data afterwards (PLAN.md 4.4).
+#
+# The plan's matrix is 8 arms x 2 context lengths x 3 repeats = 48
+# measurements, and each one starts a vLLM engine, which costs minutes on
+# this card. The matrix below is the plan's, with one context length and
+# one repeat: the requests-served number is a property of the budget and
+# the context, not of the repeat, so the repeat measures variance rather
+# than the question. The two context lengths and three repeats are the
+# plan's, and they are one command away.
+arms: [gqa, mla]
+ranks: [512, 384, 256, 192, 128, 96, 64]
+context_lens: [4096]
+repeats: 1
+storage: bf16
+fidelity_floor:
+  exact_match_min: 0.95
+  rel_dppl_max: 0.01
+
+# The workload. These are the defaults the CLI uses when the YAML does
+# not name them, written down so the run is reproducible from this file.
+requests: 16
+output_tokens: 32
+fidelity_prompts: 4
+gpu_memory_utilization: 0.8
+# 512 MiB of KV, not the plan's 1.9 GiB: the 6 GB card does not have
+# 5.4 GiB free with the other services on it. Both arms get the same
+# budget, so the comparison holds.
+kv_budget_bytes: 536870912

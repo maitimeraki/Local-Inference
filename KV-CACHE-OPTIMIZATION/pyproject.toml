@@ -1,0 +1,32 @@
+[project]
+name = "kvbench"
+version = "0.1.0"
+description = "MLA vs grouped-query KV cache on one RTX 3050: requests served, throughput, fidelity"
+requires-python = ">=3.12"
+dependencies = [
+    "torch==2.13.0",
+    "vllm==0.31.0",
+    "transformers==5.17.0",
+    "safetensors==0.8.0",
+    "numpy==2.3.5",
+    "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[project.scripts]
+kvbench = "kvbench.bench:main"
+
+[project.entry-points."vllm.general_plugins"]
+kvbench = "kvbench.models:register_plugins"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["kvbench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

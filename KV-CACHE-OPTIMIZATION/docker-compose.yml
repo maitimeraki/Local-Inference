@@ -1,0 +1,17 @@
+services:
+  kvbench:
+    build: .
+    gpus: all
+    environment:
+      HF_HUB_OFFLINE: "1"
+      KVBENCH_MODEL_DIR: /opt/models/Qwen2.5-1.5B-Instruct
+      KVBENCH_CORPUS_PATH: /opt/data/pg1342.txt
+      KVBENCH_RESULTS_DIR: /results
+      KVBENCH_MLA_DIR: /opt/mla
+    volumes:
+      # Only the results are mounted out. The model and the corpus are baked
+      # into the image: WSL2 paths do not bind-mount into the container.
+      - ./results:/results
+    working_dir: /opt/kvbench
+    ipc: host
+    shm_size: "8gb"

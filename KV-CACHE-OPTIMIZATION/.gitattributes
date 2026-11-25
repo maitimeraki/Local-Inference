@@ -1,0 +1,6 @@
+# The archived results are byte-stable: their checksums are part of the
+# reproducibility record, so git must not rewrite their line endings.
+results/** -text
+
+# Everything else is text and gets the platform's line endings.
+* text=auto

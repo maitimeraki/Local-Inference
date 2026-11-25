@@ -1,0 +1,19 @@
+{
+  "fidelity_floor": {
+    "exact_match": 0.95,
+    "rel_dppl": 0.01
+  },
+  "arms": [
+    "gqa",
+    "mla"
+  ],
+  "ranks": [
+    128,
+    256,
+    512
+  ],
+  "context_lens": [
+    4096
+  ],
+  "rows": 4
+}

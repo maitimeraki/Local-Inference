@@ -1,0 +1,10 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.pytest_cache
+results
+artifacts
+docs
+README.md
+PLAN.md
